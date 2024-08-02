@@ -10,10 +10,10 @@
 
 Sub_Load2	equ	$7D03
 Sub_Save2	equ	$7D06
-Disk_Buffer	equ	$FE00					;512byte 必要（ディレクトリ検索などで使用）
+Disk_Buffer	equ	$0200					;512byte 必要（ディレクトリ検索などで使用）
 
 
-	ORG		$F800
+	ORG		$B000
 
 	jp			Start					;+0
 	jp			Disk_Load				;+3
