@@ -1,0 +1,123 @@
+;--------------------------------------------------------------------------------------------------------
+;機種・速度・デバイス判定
+;todo:EXTRAM,辞書ROM,響,メモリウェイト,VA,emu...
+;
+;$AA=$32 サウンド割り込み許可 bit7
+;$A8=$44 CH1-3 レジスタ指定/ステータス0読み込み
+;$A9=$45 CH1-3 データ書き込み/SSG読み込み
+;$AC=$46 CH4-6 レジスタ指定/ステータス1読み込み
+;$AD=$47 CH4-6 データ書き込み/ADPCM読み込み
+;
+;$Ax 側になるのは 88/mk2/SR/TR/FR/MR + SB2のみ
+;$Ax 側で SB2 でなければ 88/mk2 + SB1
+;1)$Ax 側に SB2 が存在するか -> 存在すれば 7)
+;2)$4x 側に SB2 が存在するか -> 存在すれば 7)
+;3)SB2 搭載機では無い
+;4)OPN 存在チェックをする -> 存在すれば 6)
+;5)音源が存在しない
+;6)OPNが存在する
+;7)SB2 搭載機である
+
+	relaxed		on						;0xFF 0FFH $FF 表記混在可
+
+
+Machine_Mode:		db		"V2  Mode "	;V1S/V1H/V2/V2H
+Machine_Speed:		db		"4MHz"		;4/8
+Machine_ROM:		db		"4"
+
+OPN_REG:			db		0			;$44/$A8 であれば存在
+OPNA_REG:			db		0			;$46/$AA であれば存在
+OPM_REG:			db		0			;$88 であれば存在
+
+Check_Machine:
+	in			a,($31)					;bit76:10=V1S 11=V1H 01=V2
+	rlca
+	ld			hl," 2"
+	jr			nc,.mode
+	rlca
+	ld			hl,"H1"
+	jr			c,.mode
+	ld			hl,"S1"
+.mode:
+	ld			(Machine_Mode+1),hl
+
+	in			a,($6E)					;bit7:0=8MHz 1=4MHz (FH以降)
+	rlca
+	ld			a,"4"
+	jr			c,.normal
+	ld			a,"8"
+.normal:
+	ld			(Machine_Speed),a
+	ret
+
+;このルーチン自体は$8000以降に無いとダメ
+CheckROM:
+	ld			a,%00111001				;[0][0][20/25line][bw/col][goff/gon][n88/n][rom/64kram][400/200]
+	out			($31),a					;ROM
+	ld			a,($79D7)
+	ld			(Machine_ROM),a			;"2"=88 "3"=mk2 "4"=SR "567"=TR,FR,MR "8"=FH,MH "9"=FA,MA,FE,MA2,FE2,MC
+	ld			a,%00111011				;64KRAM
+	out			($31),a
+	ret
+
+
+CheckSound:
+	ld			c,$A8
+	call		.checksb2
+	jr			z,.existsb2
+	ld			c,$44
+	call		.checksb2
+	jr			z,.existsb2
+
+	call		.checkopn
+	ld			(OPN_REG),a
+	ret			z
+	ld			c,$A8
+	call		.checkopn
+	ld			(OPN_REG),a
+	ret
+
+.checkopn:
+	ld			a,6
+	out			(c),a					;c=$44/$A8
+	ld			a,31
+	inc			c
+	out			(c),a					;PSGにノイズ周波数を書き込んでみる
+	in			a,(c)
+	dec			c
+	cp			31
+	ld			a,0
+	ret			nz
+	ld			a,c
+	ret									;正しく読めたらOPNが存在
+
+.existsb2:
+	ld			a,c
+	cp			$44
+	ld			a,$46
+	jr			z,.sb2reg
+	call		.checkopn				;オンボードOPN + オプションOPNA も判定できる 何に使うかは知らん
+	ld			(OPN_REG),a
+	ld			a,$AC					;88/mk2の SB1 は確か SB2 と I/O が被るので排他使用だったはず･･･
+.sb2reg:
+	ld			(OPNA_REG),a
+	ret
+
+.checksb2:
+	ld			a,$FF
+	out			(c),a
+	push		bc
+	pop			bc
+	inc			c						;10+11+10+4=35clk
+	in			b,(c)					;1が返ってきたらSB2が存在
+	dec			b
+	in			a,(c)					;存在しない場合 "不定" なので一応2回調べておく
+	dec			c
+	dec			a
+	or			b
+	ret									;zero:SB2が存在 non-zero=SB2なし
+
+
+;エミュレータはbusyが立たない気がするので適当にタイマーを回してステータスを読むしかなさそう
+;$88(W),$89(R/W)
+CheckOPM:

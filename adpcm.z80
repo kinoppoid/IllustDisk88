@@ -1,0 +1,438 @@
+;
+; YM-2608(OPNA) ADPCM
+;
+;プリスケール=AD/DA 変換時(ADPCM含む)のサンプリング周波数 250～2047
+;PreScale = 7987200 / 2 / fsample(2KHz～16KHz)
+;
+;DeltaN=ADPCM再生時のサンプリング周波数 2363～65535
+; 55.5KHz(=7987200/144)で線形補完するための補完係数
+;DeltaN = (fsample/55467Hz)*65536
+;
+;* OPNA の ADPCM 部はウェイト不要なので、FM 部とは別に読み書きルーチンを作った方が良い
+;* リミットアドレス($0C,$0D)は電源投入直後は $0000 になっている。設定せずに書き込むと、最後に書き込んだものが $0000～ に入っている
+;* ADPCM RAM への書き込み/読み込みもリミットアドレスを参照している
+;* リミットアドレスは一度設定すれば良い。録/再/読/書の都度書き込む必要は無い
+;* ストップアドレス+1 が必要なのは「読み出し」のみ。その際 x8 モードで $2000 になっても問題ない。 x1 の $0000 もおそらく大丈夫
+;* PCMデータは 2's complement(=signed) 8bit データ
+;* ADPCM はきちんと停止（リセット）しないと次の再生が出来ない
+;* ADPCM と PCM は排他利用。同時に鳴らすことは出来ない
+;
+;* ADPCM 再生中のリアルタイムDelta-N変更は可能。
+;* ADPCM 再生中のリアルタイム音量変更は可能。
+;* ADPCM 再生中のリアルタイムパン変更は可能。
+
+	relaxed		on						;0xFF 0FFH $FF 表記混在可
+
+
+;--------------------------------------------------------------------------------------------------------ADPCM 関連ワーク
+;リピートの設定が無いので、必要に応じて増設すること
+;
+ADPCM_START:		dw		0
+ADPCM_END:			dw		$01FF
+ADPCM_PRESCALE:		dw		250			;16000Hz時の設定
+ADPCM_DELTAN:		dw		18905		;16000Hz時の設定
+ADPCM_VOL:			db		250
+ADPCM_PAN:			db		%11 << 6	;bit7:L bit6:R
+ADPCM_ADR:			dw		$B000
+;--------------------------------------------------------------------------------------------------------ADPCM 録音
+;ADPCM_START=開始アドレス(0-)
+;ADPCM_END=終了アドレス(-$1FFF)
+;ADPCM_PRESCALE=サンプリング周波数(250=16KHz ～ 2000=2KHz)
+;
+ADPCM_Rec:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$1008				;フラグコントロール BRDYだけをマスク
+	call		WriteFM2
+	ld			e,$80					;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+	ld			de,$0068				;ADPCM録音・メモリアクセス許可・データ書き込み・スピーカ出力を止める
+	call		WriteFM2
+	ld			de,$0102				;x8 DRAM
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+	inc			d
+	ld			e,l						;スタートアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;スタートアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_END)
+	inc			d
+	ld			e,l						;ストップアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;ストップアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_PRESCALE)
+	inc			d
+	ld			e,l						;プリスケール下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;プリスケール上位
+	call		WriteFM2
+
+	ld			de,$00E8				;ADPCM録音開始
+	call		WriteFM2
+
+.wait:
+	in			a,(c)
+	bit			2,a						;EOSフラグが立つまで待つ
+	jr			z,.wait
+
+	ld			de,$0001
+	jp			WriteFM2				;コントロール1 リセット
+
+;--------------------------------------------------------------------------------------------------------ADPCM 再生
+;ADPCM_START=開始アドレス(0-)
+;ADPCM_END=終了アドレス(-$1FFF)
+;ADPCM_DELTA=音程(2362=2KHz～)
+;ADPCM_VOL=音量(0-255)
+;ADPCM_PAN=左右出力(bit7:L bit6:R)
+;
+ADPCM_Play:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$1008				;フラグコントロール BRDYだけをマスク
+	call		WriteFM2
+	ld			e,$80					;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+	ld			de,$0020				;メモリアクセス許可
+	call		WriteFM2
+
+	inc			d
+	ld			a,(ADPCM_PAN)
+	or			2
+	ld			e,a						;LR出力 x8 DRAM
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+	inc			d
+	ld			e,l						;スタートアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;スタートアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_END)
+	inc			d
+	ld			e,l						;ストップアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;ストップアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_DELTAN)
+	ld			d,$09
+	ld			e,l						;DELTA-N 下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;DELTA-N 上位
+	call		WriteFM2
+
+	inc			d
+	ld			a,(ADPCM_VOL)			;ボリューム
+	ld			e,a
+	call		WriteFM2
+
+	ld			de,$00A0				;ADPCM再生スタート・外部メモリ・リピートなし
+	jp			WriteFM2
+
+;--------------------------------------------------------------------------------------------------------ADPCM 再生停止
+ADPCM_Stop:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$0001				;ADPCM再生停止
+	jp			WriteFM2
+
+;--------------------------------------------------------------------------------------------------------ADPCM RAM へのデータ格納
+;x8モードなので1つのアドレスから32byte書き込む
+;ADPCM_ADR=転送元アドレス
+;ADPCM_START=開始アドレス
+;ADPCM_END=終了アドレス
+;
+ADPCM_Write:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$1000				;フラグコントロール どのフラグもマスクしない
+	call		WriteFM2
+	ld			e,$80					;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+	ld			de,$0060				;メモリアクセス許可 データ書き込み
+	call		WriteFM2
+	ld			de,$0102				;x8 DRAM
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+	push		hl
+	inc			d
+	ld			e,l						;スタートアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;スタートアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_END)
+	inc			d
+	ld			e,l						;ストップアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;ストップアドレス上位
+	call		WriteFM2
+
+	ld			de,$0CFF				;リミットアドレス下位 $FF
+	call		WriteFM2
+	ld			de,$0D1F				;リミットアドレス上位 $1F
+	call		WriteFM2
+
+	pop			de
+	or			a
+	sbc			hl,de
+	inc			h
+	inc			l
+	ex			de,hl
+
+	ld			hl,(ADPCM_ADR)
+.loop1:
+	ld			b,64
+.loop2:
+	ld			a,$08
+	out			(c),a
+	inc			c
+	outi								;R.8 <- Data
+	dec			c
+.wait:
+	in			a,(c)					;BRDYフラグ=1になるまで待つ
+	bit			3,a
+	jr			z,.wait
+
+	ld			a,$10
+	out			(c),a
+	inc			c
+	ld			a,$80					;フラグコントロール 全てのステータスフラグを0に
+	out			(c),a
+	dec			c
+
+	djnz		.loop2
+	dec			e
+	jp			nz,.loop1
+	dec			d
+	jp			nz,.loop1
+
+	ld			de,$0001
+	jp			WriteFM2				;コントロール1 リセット
+
+;--------------------------------------------------------------------------------------------------------ADPCM RAM からのデータ読み出し
+;x8モードなので1つのアドレスから32byte読み込む
+;ADPCM_ADR=格納アドレス
+;ADPCM_START=開始アドレス
+;ADPCM_END=終了アドレス
+;
+ADPCM_Read:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$1000				;フラグコントロール どのフラグもマスクしない
+	call		WriteFM2
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+	ld			de,$0020				;メモリアクセス許可
+	call		WriteFM2
+	ld			de,$0102				;x8 DRAM
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+	push		hl
+	inc			d
+	ld			e,l						;スタートアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;スタートアドレス上位
+	call		WriteFM2
+
+	ld			hl,(ADPCM_END)
+	inc			hl						;空読みがある分、+1しなければならない
+	inc			d
+	ld			e,l						;ストップアドレス下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;ストップアドレス上位
+	call		WriteFM2
+
+	dec			hl						;hl=本当の終端
+	pop			de
+	or			a
+	sbc			hl,de
+	inc			h
+	inc			l
+	ex			de,hl
+
+	call		ReadADPCM
+	call		ReadADPCM				;2回分空読みする
+
+	ld			hl,(ADPCM_ADR)
+.loop1:
+	ld			b,64
+.loop2:
+	in			a,(c)					;BRDY=1になるまで待つ
+	bit			3,a
+	jr			z,.loop2
+
+	ld			a,$08
+	out			(c),a
+	inc			c
+	ini
+	dec			c
+	djnz		.loop2
+	dec			e
+	jp			nz,.loop1
+	dec			d
+	jp			nz,.loop1
+
+	ld			de,$0001				;コントロール1 リセット
+	jp			WriteFM2
+
+;--------------------------------------------------------------------------------------------------------AD変換(PCM録音)
+;ADPCM_START=格納開始アドレス
+;ADPCM_END=格納終了アドレス+1
+;ADPCM_PRESCALE=サンプリングレート(250=16KHz ～ 2000=2KHz)
+;
+;・録音中は di しておいた方が良い
+;・格納先はメイン側RAM(!=256KB外部RAM)なので注意
+;
+ADPCM_PCMRec:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$101B				;EOS フラグのみ許可 ZERO,BRDY,TIMER-A/B は不許可
+	call		WriteFM2
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+
+	ld			hl,(ADPCM_PRESCALE)
+	ld			d,$06
+	ld			e,l						;プリスケール下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;プリスケール上位
+	call		WriteFM2
+
+	ld			de,$0008				;スピーカ出力を止める
+	call		WriteFM2
+
+	ld			de,$010A				;AD変換開始 sample,AD,x8
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+.loop:
+	in			a,(c)
+	bit			2,a						;1サンプル周期が経過するとEOSフラグが立つ
+	jr			z,.loop
+
+	ld			a,$0F
+	out			(c),a
+	inc			c
+	ini
+	dec			c
+
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+
+	ld			a,(ADPCM_END+1)
+	cp			h
+	jp			nz,.loop
+	ld			a,(ADPCM_END)
+	cp			l
+	jp			nz,.loop
+
+	ld			de,$0000
+	call		WriteFM2				;コントロール1 リセット
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	jp			WriteFM2
+
+;--------------------------------------------------------------------------------------------------------DA変換(PCM再生)
+;ADPCM_START=格納開始アドレス
+;ADPCM_END=格納終了アドレス+1
+;ADPCM_PRESCALE=サンプリングレート(250=16KHz ～ 2000=2KHz)
+;ADPCM_PAN=左右出力(bit7:L bit6:R)
+;
+;・再生音量は指定できない
+;・EOS フラグをポーリングして再生するのはかなり効率が悪いので、割り込み化した方が良い(Timer-A/Bと同様)
+;　通常の演奏処理と同期させる場合は、OPNA レジスタラッチが交錯しないように di が必要
+;・再生元はメイン側RAM(!=256KB外部RAM)なので注意
+;
+ADPCM_PCMPlay:
+	ld			a,(OPNA_REG)
+	ld			c,a
+
+	ld			de,$101B				;EOS フラグのみ許可 ZERO,BRDY,TIMER-A/B は不許可
+	call		WriteFM2
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+
+	ld			hl,(ADPCM_PRESCALE)
+	ld			d,$06
+	ld			e,l						;プリスケール下位
+	call		WriteFM2
+	inc			d
+	ld			e,h						;プリスケール上位
+	call		WriteFM2
+
+	ld			d,$01
+	ld			a,(ADPCM_PAN)			;bit7=L bit6=R
+	or			$0E						;sample,DA,x8
+	ld			e,a						;DA変換開始
+	call		WriteFM2
+
+	ld			hl,(ADPCM_START)
+.loop:
+	ld			a,$0E
+	out			(c),a
+	inc			c
+	outi								;8bit signed PCMデータ
+	dec			c
+
+.wait:
+	in			a,(c)
+	bit			2,a						;1サンプル周期が経過するとEOSフラグが立つ
+	jr			z,.wait
+
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	call		WriteFM2
+
+	ld			a,(ADPCM_END+1)
+	cp			h
+	jp			nz,.loop
+	ld			a,(ADPCM_END)
+	cp			l
+	jp			nz,.loop
+
+	ld			de,$0000
+	call		WriteFM2				;コントロール1 リセット
+	ld			de,$1080				;フラグコントロール 全てのステータスフラグを0に
+	jp			WriteFM2
+
+;------------------------------------------------------------------------------------------- FM音源レジスタ読み出し
+ReadADPCM:
+	ld			a,$08
+	out			(c),a					;Reg(8)
+	inc			c
+	in			a,(c)					;ADPCMメモリからデータを読み込む
+	dec			c
+	ret
+
+;------------------------------------------------------------------------------------------- FM音源レジスタ書き込み
+WriteFM2:
+	out			(c),d
+	inc			c
+	out			(c),e					;Reg(D) <- E
+	dec			c
+	ret
+
