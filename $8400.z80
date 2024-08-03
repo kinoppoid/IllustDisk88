@@ -7,8 +7,8 @@
 	ORG			$8400
 
 Disk_Load2		equ	$B000+6
-Disk_FileName	equ	$B000+30
-
+Disk_FindFile		equ	$B000+24
+Disk_FileName		equ	$B000+30
 StartUp:
 	ld			sp,$8400
 	ld			a,%00111001				;ROMバンクに戻す
@@ -57,7 +57,7 @@ Play:
 	ld			(ADPCM_ADR),hl
 	ld			(ADPCM_START),hl
 	call		Disk_Load2
-	db			"KINOKO  IMA",0
+	db			"????????IMA",0
 
 	call		Disk_FileName
 	ld			hl,11
@@ -94,23 +94,62 @@ Play:
 
 	call		ADPCM_Play
 
+
+
+
+
 Key:
 	ld			hl,0xF3C8
 	call		PrintMSG
 	db			"hit space to show next CG(0).",0
+	in			a,(1)
+	bit			7,a
+	jr			nz,N
+	call		ADPCM_Stop
+	call		ADPCM_Play
 N:
+
 
 	in			a,(9)
 	bit			6,a
 	jr			nz,Key
 
+
+
+
 	xor a
 	out (81),a		;ポート81に0で　テキスト画面を消す。
+
+	jr 	LOAD
+
+NAMERESET:
+	ld	a,0x41
+	ld	(FNAMEB),a
+	ld	(FNAMER),a
+	ld	(FNAMEG),a
+	ld	(FNAMEPLT),a
+LOAD:
+	ld			a,%00110011				;グラフィックけす
+	out			($31),a
+	;デジタル8色
+	call			SetDigitalPalette
+	out			($32),a
+	ld			hl,0x0000
+	call		Disk_Load2
+FNAMEPLT:
+	db			"A       PAL",0
+	call			nc,SetAnalogPalette
+
+	
 	out (05ch),a
 	ld			hl,0x0000
 	call		Disk_Load2
 FNAMEB:
-	db			"1       BLZ",0
+	db			"A       BLZ",0
+
+;BLZファイルがなければファイル名をAに戻す
+	jp			c,NAMERESET
+
 	ld			hl,0x0000+4
 	ld			de,0xC000
 	call			DECODE_LZE
@@ -122,7 +161,7 @@ FNAMEB:
 	ld			hl,0x0000
 	call		Disk_Load2
 FNAMER:
-	db			"1       RLZ",0
+	db			"A       RLZ",0
 	ld			hl,0x0000+4
 	ld			de,0xC000
 	call			DECODE_LZE
@@ -131,32 +170,80 @@ FNAMER:
 	ld			hl,0x0000
 	call		Disk_Load2
 FNAMEG:
-	db			"1       GLZ",0
+	db			"A       GLZ",0
 	ld			hl,0x0000+4
 	ld			de,0xC000
 	call			DECODE_LZE
 
 	out			($5F),a					;$C000-$FFFFをメインRAMに割り当て
+
+	ld			a,%00111011				;グラフィックだす
+	out			($31),a
+
 	ld	a,(FNAMEB)
 	inc	a
 	ld	(FNAMEB),a
-	ld	a,(FNAMEG)
-	inc	a
-	ld	(FNAMEG),a
-	ld	a,(FNAMER)
-	inc	a
-	ld	(FNAMER),a
-
-	sub	0x3a
-	jr	z,LoopName
-	jp			Key
-
-LoopName:
-	ld	a,0x31
-	ld	(FNAMEB),a
 	ld	(FNAMEG),a
 	ld	(FNAMER),a
+	ld	(FNAMEPLT),a
 	jp			Key
+SetDigitalPalette:
+	ld			a,%10001001				;bit4=0 TVRAM
+	xor			a
+	out			($54),a
+	inc			a
+	out			($55),a
+	inc			a
+	out			($56),a
+	inc			a
+	out			($57),a
+	inc			a
+	out			($58),a
+	inc			a
+	out			($59),a
+	inc			a
+	out			($5a),a
+	inc			a
+	out			($5b),a
+	ret
+
+SetAnalogPalette:
+	;アナログ512色
+	ld			a,%10101001				;bit3=1
+	out			($32),a
+	ld			a,($0000)
+	out			($54),a
+	ld			a,($0001)
+	out			($54),a
+	ld			a,($0002)
+	out			($55),a
+	ld			a,($0003)
+	out			($55),a
+	ld			a,($0004)
+	out			($56),a
+	ld			a,($0005)
+	out			($56),a
+	ld			a,($0006)
+	out			($57),a
+	ld			a,($0007)
+	out			($57),a
+	ld			a,($0008)
+	out			($58),a
+	ld			a,($0009)
+	out			($58),a
+	ld			a,($000A)
+	out			($59),a
+	ld			a,($000B)
+	out			($59),a
+	ld			a,($000C)
+	out			($5a),a
+	ld			a,($000B)
+	out			($5a),a
+	ld			a,($000E)
+	out			($5b),a
+	ld			a,($000F)
+	out			($5b),a
+	ret
 
 Print:
 	push		af
@@ -199,4 +286,4 @@ PrintMSG:
 
 	include		"adpcm.z80"
 	include		"device88.z80"
-	include		"lzedecR.mac"
+	include		"lzedec.mac"
