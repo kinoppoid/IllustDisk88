@@ -15,9 +15,11 @@ A.PAL  オプション。piroPAINTが書きだしたパレットファイル（�
 ファイルシステム、ADPCM再生やサウンドデバイス判定などだいたいすべてこちらからお借りしました
 http://mydocuments.g2.xrea.com/html/p8/dos.html
 
-lze圧縮（C#版）および展開ルーチン（z80用）はこちらで公開されているものを利用しました。
+lze圧縮（C#版）および展開ルーチン（z80用）はこちらで公開されているものを使用しました。
 https://kmoroboshi.web.fc2.com/software/LZE/index.html
 
 アセンブラはThe Macroassembler AS（Win32版）を使用します。
 http://john.ccac.rwth-aachen.de:8000/as/
 
+piroPAINT_9918はこちらからダウンロードできます。主にpixelConverterのPC-8801モードを使用します。
+http://wiki.piroyan.com/
