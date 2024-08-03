@@ -5,7 +5,6 @@
 	relaxed on
 
 	ORG			$8400
-
 Disk_Load2		equ	$B000+6
 Disk_FindFile		equ	$B000+24
 Disk_FileName		equ	$B000+30
@@ -188,61 +187,32 @@ FNAMEG:
 	ld	(FNAMEPLT),a
 	jp			Key
 SetDigitalPalette:
-	ld			a,%10001001				;bit4=0 TVRAM
+	ld			a,%10001001				;デジタルモード
 	xor			a
-	out			($54),a
+	ld			c,$54
+	ld			b,8
+.loop
+	out			(c),a
 	inc			a
-	out			($55),a
-	inc			a
-	out			($56),a
-	inc			a
-	out			($57),a
-	inc			a
-	out			($58),a
-	inc			a
-	out			($59),a
-	inc			a
-	out			($5a),a
-	inc			a
-	out			($5b),a
+	inc			c
+	djnz			.loop
 	ret
 
 SetAnalogPalette:
 	;アナログ512色
-	ld			a,%10101001				;bit3=1
+	ld			a,%10101001				;アナログモード
 	out			($32),a
-	ld			a,($0000)
-	out			($54),a
-	ld			a,($0001)
-	out			($54),a
-	ld			a,($0002)
-	out			($55),a
-	ld			a,($0003)
-	out			($55),a
-	ld			a,($0004)
-	out			($56),a
-	ld			a,($0005)
-	out			($56),a
-	ld			a,($0006)
-	out			($57),a
-	ld			a,($0007)
-	out			($57),a
-	ld			a,($0008)
-	out			($58),a
-	ld			a,($0009)
-	out			($58),a
-	ld			a,($000A)
-	out			($59),a
-	ld			a,($000B)
-	out			($59),a
-	ld			a,($000C)
-	out			($5a),a
-	ld			a,($000B)
-	out			($5a),a
-	ld			a,($000E)
-	out			($5b),a
-	ld			a,($000F)
-	out			($5b),a
+	ld			hl,$0000
+	ld			c,$54
+	ld			a,8
+.loop
+	ld			b,2
+;	outir	なぜか変換できない
+	db			%11101101
+	db			%10110011
+	inc			c
+	dec			a
+	jr			nz,.loop
 	ret
 
 Print:
