@@ -57,6 +57,7 @@ Play:
 	db			"????????IMA",0
 
 	call		Disk_FileName
+	call			c,ADPCMIgnore	;IMAファイルがなければADPCMIgnoreに飛ぶ
 	ld			hl,11
 	add			hl,de
 	ld			a,(hl)					;=FileSize
@@ -184,6 +185,7 @@ FNAMEG:
 	ld	(FNAMER),a
 	ld	(FNAMEPLT),a
 	jp			Key
+
 SetDigitalPalette:
 	ld			a,%10001001				;デジタルモード
 	xor			a
@@ -211,6 +213,11 @@ SetAnalogPalette:
 	inc			c
 	dec			a
 	jr			nz,.loop
+	ret
+
+ADPCMIgnore:
+	ld			hl,ADPCM_Play
+	ld			(hl),%11001001	;ADPCM_Playを即リターンに書き換え
 	ret
 
 Print:
