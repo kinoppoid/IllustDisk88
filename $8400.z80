@@ -14,11 +14,9 @@ StartUp:
 	out			($31),a
 	ld			a,%10001001				;bit4=0 TVRAM
 	out			($32),a
-
 	xor			a
 	ld			($E6A7),a				;カーソル表示フラグ 0=非表示 1=表示
 	call		$428B					;カーソル点滅停止
-	call		$4021					;ファンクションキー表示停止
 	ld			bc,80*256+25
 	call		$6F6B
 	call		$5F0E					;テキスト画面クリア
@@ -100,7 +98,7 @@ Play:
 Key:
 	ld			hl,0xF3C8
 	call		PrintMSG
-	db			"hit space to show next CG(0).",0
+	db			"hit space to show next CG.",0
 	in			a,(1)
 	bit			7,a
 	jr			nz,N
